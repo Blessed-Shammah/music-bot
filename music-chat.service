@@ -1,0 +1,14 @@
+[Unit]
+Description=Music Chat Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+# Update these two paths to match your setup:
+WorkingDirectory=/home/YOUR_USER/xcode/music-chat
+ExecStart=/usr/bin/python3 bot.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

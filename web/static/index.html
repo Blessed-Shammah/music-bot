@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Music Chat</title>
+<style>
+  :root[data-theme="dark"] {
+    --bg:        #0f0f13;
+    --surface:   #1a1a24;
+    --surface2:  #242433;
+    --border:    #2e2e42;
+    --text:      #e8e8f0;
+    --muted:     #6b6b88;
+    --accent:    #7c5cfc;
+    --accent2:   #a78bfa;
+    --green:     #22d3a0;
+    --bot-bubble:#1e1e30;
+    --user-bubble:#2d1f6e;
+    --shadow:    0 4px 24px rgba(0,0,0,.5);
+    --bar-bg:    #13131d;
+  }
+  :root[data-theme="light"] {
+    --bg:        #f0f0f8;
+    --surface:   #ffffff;
+    --surface2:  #f4f4fb;
+    --border:    #ddddf0;
+    --text:      #1a1a2e;
+    --muted:     #7070a0;
+    --accent:    #6d4ef0;
+    --accent2:   #8b6ef5;
+    --green:     #10b981;
+    --bot-bubble:#ffffff;
+    --user-bubble:#ede9ff;
+    --shadow:    0 4px 24px rgba(0,0,0,.1);
+    --bar-bg:    #ffffff;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: background .25s, color .25s;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    z-index: 10;
+    flex-shrink: 0;
+  }
+  .logo { font-size: 22px; }
+  .header-title { font-weight: 700; font-size: 17px; flex: 1; }
+  .header-sub { font-size: 12px; color: var(--muted); }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+  }
+  .theme-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background .2s;
+  }
+  .theme-btn:hover { background: var(--border); }
+
+  /* ── Chat area ── */
+  #chat {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    scroll-behavior: smooth;
+  }
+  #chat::-webkit-scrollbar { width: 4px; }
+  #chat::-webkit-scrollbar-track { background: transparent; }
+  #chat::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  /* ── Bubbles ── */
+  .msg { display: flex; flex-direction: column; max-width: 82%; animation: fadeUp .2s ease; }
+  .msg.bot { align-self: flex-start; }
+  .msg.user { align-self: flex-end; }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .bubble {
+    padding: 12px 16px;
+    border-radius: 16px;
+    line-height: 1.5;
+    font-size: 14px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .bot .bubble {
+    background: var(--bot-bubble);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+  }
+  .user .bubble {
+    background: var(--user-bubble);
+    border-bottom-right-radius: 4px;
+    color: var(--text);
+  }
+  .msg-time { font-size: 10px; color: var(--muted); margin-top: 4px; padding: 0 4px; }
+  .msg.user .msg-time { text-align: right; }
+
+  /* ── Search results cards ── */
+  .results-card {
+    background: var(--bot-bubble);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    border-bottom-left-radius: 4px;
+    overflow: hidden;
+  }
+  .results-header {
+    padding: 10px 14px;
+    font-size: 12px;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    letter-spacing: .5px;
+    text-transform: uppercase;
+  }
+  .result-item {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    transition: background .15s;
+  }
+  .result-item:last-child { border-bottom: none; }
+  .result-item:hover { background: var(--surface2); }
+  .result-title {
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .result-meta { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .result-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .action-btn {
+    padding: 5px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background .15s, border-color .15s, transform .1s;
+    font-weight: 500;
+  }
+  .action-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .action-btn:active { transform: scale(0.96); }
+  .action-btn.play { border-color: var(--accent); color: var(--accent); }
+  .action-btn.play:hover { background: var(--accent); color: #fff; }
+
+  /* ── Playlists ── */
+  .playlists-card {
+    background: var(--bot-bubble);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    border-bottom-left-radius: 4px;
+    overflow: hidden;
+  }
+  .playlist-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    gap: 10px;
+    transition: background .15s;
+  }
+  .playlist-item:last-child { border-bottom: none; }
+  .playlist-item:hover { background: var(--surface2); }
+  .playlist-name { flex: 1; font-weight: 500; font-size: 14px; }
+  .playlist-count { font-size: 12px; color: var(--muted); }
+  .pl-load-btn {
+    padding: 4px 12px;
+    border-radius: 16px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    font-size: 12px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: opacity .15s;
+  }
+  .pl-load-btn:hover { opacity: .85; }
+
+  /* ── Typing indicator ── */
+  .typing { display: flex; gap: 4px; padding: 14px 16px; align-items: center; }
+  .typing span {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--muted);
+    animation: blink 1.2s infinite;
+  }
+  .typing span:nth-child(2) { animation-delay: .2s; }
+  .typing span:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%,80%,100% { opacity:.2; } 40% { opacity:1; } }
+
+  /* ── Input bar ── */
+  #input-bar {
+    display: flex;
+    gap: 10px;
+    padding: 14px 20px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #input {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 11px 18px;
+    color: var(--text);
+    font-size: 14px;
+    outline: none;
+    transition: border-color .2s;
+  }
+  #input:focus { border-color: var(--accent); }
+  #input::placeholder { color: var(--muted); }
+  #send-btn {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: none;
+    color: #fff;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: opacity .15s, transform .1s;
+    flex-shrink: 0;
+  }
+  #send-btn:hover { opacity: .85; }
+  #send-btn:active { transform: scale(.93); }
+
+  /* ── Now playing bar ── */
+  #now-playing {
+    display: none;
+    flex-direction: column;
+    padding: 10px 20px 12px;
+    background: var(--bar-bg);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    gap: 8px;
+  }
+  #now-playing.visible { display: flex; }
+  .np-row { display: flex; align-items: center; gap: 12px; }
+  .np-icon { font-size: 18px; animation: spin 3s linear infinite; flex-shrink: 0; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .np-info { flex: 1; min-width: 0; }
+  .np-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .np-channel { font-size: 11px; color: var(--muted); }
+  .np-controls { display: flex; gap: 6px; flex-shrink: 0; }
+  .np-btn {
+    background: none; border: none; color: var(--text);
+    font-size: 17px; cursor: pointer; padding: 4px 6px;
+    border-radius: 6px; transition: color .15s, background .15s;
+  }
+  .np-btn:hover { color: var(--accent); background: var(--surface2); }
+
+  /* Progress track */
+  .np-progress-row { display: flex; align-items: center; gap: 8px; }
+  .np-time { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .np-track {
+    flex: 1; height: 4px; background: var(--border);
+    border-radius: 2px; cursor: pointer; position: relative;
+  }
+  .np-fill {
+    height: 100%; background: var(--accent);
+    border-radius: 2px; width: 0%;
+    transition: width .9s linear;
+  }
+  .np-track:hover .np-fill { background: var(--accent2); }
+
+  /* ── Quick commands ── */
+  .quick-cmds {
+    display: flex; gap: 6px; padding: 0 20px 10px; flex-wrap: wrap; flex-shrink: 0;
+  }
+  .qcmd {
+    padding: 4px 10px; border-radius: 14px;
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--muted); font-size: 11px; cursor: pointer;
+    transition: color .15s, border-color .15s;
+  }
+  .qcmd:hover { color: var(--accent); border-color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="logo">🎵</span>
+  <div style="flex:1">
+    <div class="header-title">Music Chat</div>
+    <div class="header-sub">YouTube · Local Playback</div>
+  </div>
+  <div class="status-dot" id="status-dot" title="Connecting..."></div>
+  <button class="theme-btn" onclick="toggleTheme()" title="Toggle theme">☀️</button>
+</header>
+
+<div id="chat">
+  <div class="msg bot">
+    <div class="bubble">👋 Hey! Type a song name to search YouTube.\n\nI'll show results — tap <b>▶ Play</b>, <b>⏭ Next</b>, or <b>➕ Queue</b>.\n\nOr try a command below.</div>
+    <div class="msg-time">now</div>
+  </div>
+</div>
+
+<div class="quick-cmds">
+  <span class="qcmd" onclick="send('/playing')">▶ Now playing</span>
+  <span class="qcmd" onclick="send('/queue')">📋 Queue</span>
+  <span class="qcmd" onclick="send('/playlists')">📚 Playlists</span>
+  <span class="qcmd" onclick="send('/shuffle')">🔀 Shuffle</span>
+  <span class="qcmd" onclick="send('/loop')">🔂 Loop</span>
+  <span class="qcmd" onclick="send('/skip')">⏭ Skip</span>
+  <span class="qcmd" onclick="send('/pause')">⏸ Pause</span>
+</div>
+
+<div id="now-playing">
+  <div class="np-row">
+    <span class="np-icon">💿</span>
+    <div class="np-info">
+      <div class="np-title" id="np-title">Nothing playing</div>
+      <div class="np-channel" id="np-channel"></div>
+    </div>
+    <div class="np-controls">
+      <button class="np-btn" onclick="send('/prev')" title="Previous">⏮</button>
+      <button class="np-btn" id="pause-btn" onclick="send('/pause')" title="Pause">⏸</button>
+      <button class="np-btn" onclick="send('/skip')" title="Skip">⏭</button>
+      <button class="np-btn" onclick="send('/loop')" title="Loop one">🔂</button>
+      <button class="np-btn" onclick="send('/loopq')" title="Loop queue">🔁</button>
+      <button class="np-btn" onclick="send('/shuffle')" title="Shuffle">🔀</button>
+    </div>
+  </div>
+  <div class="np-progress-row">
+    <span class="np-time" id="np-pos">0:00</span>
+    <div class="np-track" id="np-track" onclick="seekClick(event)">
+      <div class="np-fill" id="np-fill"></div>
+    </div>
+    <span class="np-time" id="np-dur">0:00</span>
+  </div>
+</div>
+
+<div id="input-bar">
+  <input id="input" type="text" placeholder="Search a song or type /command…" autocomplete="off" />
+  <button id="send-btn" onclick="sendInput()">➤</button>
+</div>
+
+<script>
+const chat = document.getElementById('chat');
+const input = document.getElementById('input');
+const statusDot = document.getElementById('status-dot');
+const nowPlaying = document.getElementById('now-playing');
+const npTitle = document.getElementById('np-title');
+const npChannel = document.getElementById('np-channel');
+const npFill = document.getElementById('np-fill');
+const npPos = document.getElementById('np-pos');
+const npDur = document.getElementById('np-dur');
+const npTrack = document.getElementById('np-track');
+
+let ws;
+let typingEl = null;
+let currentDur = 0;
+
+function fmt(s) {
+  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+  return `${m}:${sec.toString().padStart(2,'0')}`;
+}
+
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+
+  ws.onopen = () => {
+    statusDot.style.background = 'var(--green)';
+    statusDot.title = 'Connected';
+  };
+
+  ws.onclose = () => {
+    statusDot.style.background = '#ef4444';
+    statusDot.title = 'Disconnected — retrying…';
+    setTimeout(connect, 2000);
+  };
+
+  ws.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+
+    // Live tick — update progress bar silently, no chat bubble
+    if (data.type === 'tick') {
+      const pct = data.dur > 0 ? (data.pos / data.dur) * 100 : 0;
+      npFill.style.width = pct + '%';
+      npPos.textContent = fmt(data.pos);
+      npDur.textContent = fmt(data.dur);
+      currentDur = data.dur;
+      if (data.title) {
+        npTitle.textContent = data.title;
+        npChannel.textContent = data.channel || '';
+        nowPlaying.classList.add('visible');
+      }
+      return;
+    }
+
+    removeTyping();
+
+    if (data.type === 'now_playing') {
+      updateNowPlaying(data.title, data.channel);
+      return;
+    }
+    if (data.type === 'results') {
+      appendResults(data.results);
+    } else if (data.type === 'playlists') {
+      appendPlaylists(data.playlists);
+    } else {
+      appendMsg('bot', data.text || '');
+    }
+  };
+}
+
+function seekClick(e) {
+  if (!currentDur) return;
+  const rect = npTrack.getBoundingClientRect();
+  const pct = (e.clientX - rect.left) / rect.width;
+  const secs = Math.round(pct * currentDur);
+  // Seek relative to current — compute delta
+  const curPos = parseFloat(npPos.textContent.replace(':','')) || 0;
+  ws.send(JSON.stringify({ type: 'message', text: `/seek ${secs}` }));
+}
+
+function sendInput() {
+  const text = input.value.trim();
+  if (!text) return;
+  send(text);
+  input.value = '';
+}
+
+function send(text) {
+  if (!text.trim()) return;
+  appendMsg('user', text);
+  showTyping();
+  ws.send(JSON.stringify({ type: 'message', text }));
+}
+
+function doAction(action, tid, title) {
+  showTyping();
+  if (action === 'pl_load') {
+    ws.send(JSON.stringify({ type: 'pl_load', name: tid }));
+  } else {
+    ws.send(JSON.stringify({ type: 'action', action, tid }));
+    if (action === 'play') updateNowPlaying(title, '');
+  }
+}
+
+function appendMsg(who, text) {
+  const el = document.createElement('div');
+  el.className = `msg ${who}`;
+  const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  el.innerHTML = `<div class="bubble">${escHtml(text)}</div><div class="msg-time">${now}</div>`;
+  chat.appendChild(el);
+  scrollBottom();
+}
+
+function appendResults(results) {
+  const card = document.createElement('div');
+  card.className = 'msg bot';
+  const inner = document.createElement('div');
+  inner.className = 'results-card';
+  inner.innerHTML = `<div class="results-header">🔍 ${results.length} results</div>`;
+  results.forEach((r, i) => {
+    const item = document.createElement('div');
+    item.className = 'result-item';
+    item.innerHTML = `
+      <div class="result-title">${i+1}. ${escHtml(r.title)}</div>
+      <div class="result-meta">${escHtml(r.channel)} · ${r.duration}</div>
+      <div class="result-actions">
+        <button class="action-btn play" onclick="doAction('play','${r.tid}','${escAttr(r.title)}')">▶ Play</button>
+        <button class="action-btn" onclick="doAction('next','${r.tid}','${escAttr(r.title)}')">⏭ Next</button>
+        <button class="action-btn" onclick="doAction('queue','${r.tid}','${escAttr(r.title)}')">➕ Queue</button>
+      </div>`;
+    inner.appendChild(item);
+  });
+  const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  card.appendChild(inner);
+  card.innerHTML += `<div class="msg-time">${now}</div>`;
+  chat.appendChild(card);
+  scrollBottom();
+}
+
+function appendPlaylists(playlists) {
+  const card = document.createElement('div');
+  card.className = 'msg bot';
+  const inner = document.createElement('div');
+  inner.className = 'playlists-card';
+  inner.innerHTML = `<div class="results-header">📚 ${playlists.length} playlists</div>`;
+  playlists.forEach(pl => {
+    const item = document.createElement('div');
+    item.className = 'playlist-item';
+    item.innerHTML = `
+      <div class="playlist-name">${escHtml(pl.name)}</div>
+      <div class="playlist-count">${pl.track_count} tracks</div>
+      <button class="pl-load-btn" onclick="doAction('pl_load','${escAttr(pl.name)}','')">▶ Load</button>`;
+    inner.appendChild(item);
+  });
+  const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  card.appendChild(inner);
+  card.innerHTML += `<div class="msg-time">${now}</div>`;
+  chat.appendChild(card);
+  scrollBottom();
+}
+
+function showTyping() {
+  removeTyping();
+  const el = document.createElement('div');
+  el.className = 'msg bot';
+  el.id = 'typing-indicator';
+  el.innerHTML = '<div class="bubble typing"><span></span><span></span><span></span></div>';
+  chat.appendChild(el);
+  typingEl = el;
+  scrollBottom();
+}
+
+function removeTyping() {
+  if (typingEl) { typingEl.remove(); typingEl = null; }
+}
+
+function updateNowPlaying(title, channel) {
+  npTitle.textContent = title;
+  npChannel.textContent = channel;
+  nowPlaying.classList.add('visible');
+}
+
+function scrollBottom() {
+  requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; });
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escAttr(s) {
+  return String(s).replace(/'/g,"\\'");
+}
+
+function toggleTheme() {
+  const html = document.documentElement;
+  const isDark = html.getAttribute('data-theme') === 'dark';
+  html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+  document.querySelector('.theme-btn').textContent = isDark ? '🌙' : '☀️';
+}
+
+input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendInput(); } });
+
+connect();
+</script>
+</body>
+</html>

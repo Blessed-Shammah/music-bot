@@ -1,0 +1,138 @@
+"""
+Groq-powered intent parser.
+Converts any natural language message into a structured Intent so the bot
+understands "hi", "play hotline bling next", or a pasted song list.
+
+Uses Groq's OpenAI-compatible API (llama-3.3-70b-versatile) — ~100-200ms.
+"""
+import json
+import os
+import sys
+from dataclasses import dataclass, field
+from typing import Optional
+
+from openai import AsyncOpenAI
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from config import GROQ_API_KEY
+
+_client: Optional[AsyncOpenAI] = None
+
+
+def get_client() -> AsyncOpenAI:
+    global _client
+    if _client is None:
+        _client = AsyncOpenAI(
+            api_key=GROQ_API_KEY,
+            base_url="https://api.groq.com/openai/v1",
+        )
+    return _client
+
+
+PLAYLIST_GEN_SYSTEM = """You are a world-class music curator. The user describes a vibe, era, or theme.
+Return ONLY valid JSON with a list of 8-10 specific, well-known songs that perfectly match.
+Format: {"songs": ["Artist - Song Title", ...], "playlist_name": "Short catchy playlist name"}
+Pick real, popular songs. Prioritize variety — different artists, no filler.
+"""
+
+
+async def generate_playlist_songs(theme: str) -> tuple[list[str], str]:
+    """Ask Groq to generate a curated list of specific songs for a theme."""
+    try:
+        resp = await get_client().chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": PLAYLIST_GEN_SYSTEM},
+                {"role": "user", "content": theme},
+            ],
+            temperature=0.7,
+            max_tokens=500,
+            response_format={"type": "json_object"},
+        )
+        data = json.loads(resp.choices[0].message.content)
+        return data.get("songs", []), data.get("playlist_name", theme[:30])
+    except Exception as e:
+        print(f"[ai] playlist gen error: {e}")
+        return [], theme[:30]
+
+
+@dataclass
+class Intent:
+    type: str           # search | action | command | chat | bulk_search
+    query: str = ""     # for search/action: the cleaned search query
+    action: str = ""    # for action: play | next | queue
+    loop: str = ""      # "" | "one" | "queue" — loop modifier on action/search
+    command: str = ""   # for command: skip | pause | loop | loopq | shuffle | playing | clear | prev
+    message: str = ""   # for chat: a friendly reply
+    songs: list[str] = field(default_factory=list)
+    playlist_name: str = ""
+    theme: str = ""
+
+
+_SYSTEM = """You are a music bot assistant. Parse the user's message and return ONLY valid JSON.
+
+Intent types:
+- "search"           — find a specific song/artist
+- "action"           — play/queue a SPECIFIC named song
+- "command"          — playback control (no song named): skip, pause, loop, loopq, shuffle, playing, clear, prev, stop
+- "chat"             — greetings or off-topic
+- "bulk_search"      — a LIST of 2+ specific songs to queue
+- "ai_playlist"      — user describes a vibe/theme/era and wants the bot to pick songs (e.g. "GOATED hip hop", "chill afrobeats", "90s RnB classics")
+- "history_playlist" — user wants a playlist made from songs already played this session
+
+JSON schema:
+{
+  "type": "search"|"action"|"command"|"chat"|"bulk_search"|"ai_playlist"|"history_playlist",
+  "query": "clean YouTube search query (search/action)",
+  "action": "play"|"next"|"queue",
+  "loop": ""|"one"|"queue",
+  "command": "skip|pause|loop|loopq|shuffle|playing|clear|prev|stop",
+  "message": "friendly reply (chat only)",
+  "songs": ["Artist - Song", ...],
+  "playlist_name": "name to save as",
+  "theme": "the vibe/theme for ai_playlist (e.g. 'GOATED hip hop all time')"
+}
+
+Rules:
+- "play X" → action, action=play, query=X
+- "play X on loop/repeat" → action, action=play, query=X, loop=one
+- "next X" / "play X next" → action, action=next
+- "queue X" → action, action=queue
+- bare song name → search
+- 2+ songs listed → bulk_search
+- vibe/mood/genre/era request ("best trap songs", "chill vibes", "GOATED hip hop") → ai_playlist, theme=the description
+- "playlist of songs we played" / "songs I listened to" / "session history" → history_playlist
+- "play all" after showing search results → command, command=play_all
+- Return valid JSON only
+"""
+
+
+async def parse_intent(message: str) -> Intent:
+    """Parse a user message into a structured Intent using Groq."""
+    try:
+        resp = await get_client().chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": _SYSTEM},
+                {"role": "user", "content": message},
+            ],
+            temperature=0,
+            max_tokens=300,
+            response_format={"type": "json_object"},
+        )
+        data = json.loads(resp.choices[0].message.content)
+        return Intent(
+            type=data.get("type", "search"),
+            query=data.get("query", ""),
+            action=data.get("action", ""),
+            loop=data.get("loop", ""),
+            command=data.get("command", ""),
+            message=data.get("message", ""),
+            songs=data.get("songs", []),
+            playlist_name=data.get("playlist_name", ""),
+            theme=data.get("theme", ""),
+        )
+    except Exception as e:
+        print(f"[ai] Groq error: {e} — falling back to search")
+        # Safe fallback: treat as search
+        return Intent(type="search", query=message)

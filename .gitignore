@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+playlists.db
+*.egg-info/
+dist/
+build/
+.DS_Store
