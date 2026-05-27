@@ -41,7 +41,7 @@ class MpvController:
                 pass
 
         subprocess.Popen(
-            ["mpv", "--no-video", "--idle=yes", f"--input-ipc-server={self.socket_path}"],
+            ["mpv", "--vid=no", "--idle=yes", f"--input-ipc-server={self.socket_path}"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -71,8 +71,16 @@ class MpvController:
             print(f"[mpv] _send error: {e}")
             return None
 
-    async def play(self, url: str) -> bool:
+    async def play(self, url: str, video: bool = False) -> bool:
+        # Set video track: enable for video mode, disable for audio-only
+        await self._send(["set_property", "vid", "auto" if video else "no"])
+        if video:
+            await self._send(["set_property", "fullscreen", True])
         result = await self._send(["loadfile", url, "replace"])
+        return result is not None
+
+    async def exit_fullscreen(self) -> bool:
+        result = await self._send(["set_property", "fullscreen", False])
         return result is not None
 
     async def queue_append(self, url: str) -> bool:

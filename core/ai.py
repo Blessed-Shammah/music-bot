@@ -58,12 +58,13 @@ async def generate_playlist_songs(theme: str) -> tuple[list[str], str]:
 
 @dataclass
 class Intent:
-    type: str           # search | action | command | chat | bulk_search
-    query: str = ""     # for search/action: the cleaned search query
+    type: str           # search | action | command | chat | bulk_search | ai_playlist | history_playlist | info
+    query: str = ""     # for search/action/info: the cleaned query
     action: str = ""    # for action: play | next | queue
-    loop: str = ""      # "" | "one" | "queue" — loop modifier on action/search
+    loop: str = ""      # "" | "one" | "queue" — loop modifier
     command: str = ""   # for command: skip | pause | loop | loopq | shuffle | playing | clear | prev
     message: str = ""   # for chat: a friendly reply
+    video: bool = False # true when user wants to watch video (show on screen)
     songs: list[str] = field(default_factory=list)
     playlist_name: str = ""
     theme: str = ""
@@ -75,17 +76,19 @@ Intent types:
 - "search"           — find a song, artist, podcast, live stream, or any media on YouTube
 - "action"           — play/queue a SPECIFIC named song/stream immediately
 - "command"          — playback control (no content named): skip, pause, loop, loopq, shuffle, playing, clear, prev, stop, play_all
-- "chat"             — pure greetings or thanks with NO media request implied
+- "chat"             — pure greetings or thanks with NO media/info request implied
 - "bulk_search"      — a LIST of 2+ specific songs to queue
 - "ai_playlist"      — user describes a vibe/theme/era and wants the bot to pick songs
 - "history_playlist" — user wants a playlist made from songs already played this session
+- "info"             — user wants information/news/web results (not playable content): e.g. "latest posts from X podcast", "news about Y", "what happened with Z"
 
 JSON schema:
 {
-  "type": "search"|"action"|"command"|"chat"|"bulk_search"|"ai_playlist"|"history_playlist",
-  "query": "clean YouTube search query in English (search/action)",
+  "type": "search"|"action"|"command"|"chat"|"bulk_search"|"ai_playlist"|"history_playlist"|"info",
+  "query": "clean search query in English (search/action/info)",
   "action": "play"|"next"|"queue",
   "loop": ""|"one"|"queue",
+  "video": false,
   "command": "skip|pause|loop|loopq|shuffle|playing|clear|prev|stop|play_all",
   "message": "short friendly reply (chat only, 1-2 sentences max)",
   "songs": ["Artist - Song", ...],
@@ -101,13 +104,15 @@ Rules:
 - "next X" / "play X next" → action, action=next
 - "queue X" → action, action=queue
 - "on loop" / "loop this" / "loop it" / "repeat this" (no content named) → command, command=loop
+- "watch X" / "show video X" / "play video X" / "show me X" → action, action=play, video=true, query=X
 - bare song/artist/podcast name → search
-- "latest episodes of X podcast" / "X podcast news" → search, query="X podcast latest episode"
+- "latest episodes of X podcast" / "X podcast news" / "what has X posted" → info, query="X podcast latest 2024"
+- news queries, article queries, "what happened with X" → info
 - 2+ songs listed → bulk_search
 - vibe/mood/genre/era request → ai_playlist, theme=the description
 - "playlist of songs we played" / "session history" → history_playlist
 - "play all" / "queue all" → command, command=play_all
-- chat: ONLY for pure greetings/thanks. If there's ANY media/content request implied, use search instead.
+- chat: ONLY for pure greetings/thanks. If there's ANY media/content/info request implied, use search or info instead.
 - chat replies: warm and brief — 1 line max. Never list commands unless asked.
 - Return valid JSON only, no markdown fences
 """
@@ -135,6 +140,7 @@ async def parse_intent(message: str, history: list[dict] | None = None) -> Inten
             loop=data.get("loop", ""),
             command=data.get("command", ""),
             message=data.get("message", ""),
+            video=bool(data.get("video", False)),
             songs=data.get("songs", []),
             playlist_name=data.get("playlist_name", ""),
             theme=data.get("theme", ""),

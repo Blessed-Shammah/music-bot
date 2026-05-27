@@ -107,10 +107,16 @@ async def websocket_endpoint(ws: WebSocket):
             elif msg_type == "action":
                 action = data.get("action")
                 tid = data.get("tid", "")
-                fn_map = {"play": action_play, "next": action_next, "queue": action_queue}
-                fn = fn_map.get(action)
-                if fn:
-                    resp = await fn(tid)
+                video = bool(data.get("video", False))
+                if action == "play":
+                    resp = await action_play(tid, video=video)
+                elif action == "next":
+                    resp = await action_next(tid)
+                elif action == "queue":
+                    resp = await action_queue(tid)
+                else:
+                    resp = None
+                if resp:
                     await ws.send_text(json.dumps({"type": "text", "text": resp.text}))
                     if action == "play":
                         track = get_track(tid)

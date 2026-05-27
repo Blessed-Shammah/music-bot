@@ -175,6 +175,8 @@
   .action-btn:active { transform: scale(0.96); }
   .action-btn.play { border-color: var(--accent); color: var(--accent); }
   .action-btn.play:hover { background: var(--accent); color: #fff; }
+  .action-btn.video { border-color: #8b5cf6; color: #8b5cf6; }
+  .action-btn.video:hover { background: #8b5cf6; color: #fff; }
 
   /* ── Playlists ── */
   .playlists-card {
@@ -461,12 +463,12 @@ function send(text) {
   ws.send(JSON.stringify({ type: 'message', text }));
 }
 
-function doAction(action, tid, title) {
+function doAction(action, tid, title, video = false) {
   showTyping();
   if (action === 'pl_load') {
     ws.send(JSON.stringify({ type: 'pl_load', name: tid }));
   } else {
-    ws.send(JSON.stringify({ type: 'action', action, tid }));
+    ws.send(JSON.stringify({ type: 'action', action, tid, video }));
     if (action === 'play') updateNowPlaying(title, '');
   }
 }
@@ -496,6 +498,7 @@ function appendResults(results) {
         <button class="action-btn play" onclick="doAction('play','${r.tid}','${escAttr(r.title)}')">▶ Play</button>
         <button class="action-btn" onclick="doAction('next','${r.tid}','${escAttr(r.title)}')">⏭ Next</button>
         <button class="action-btn" onclick="doAction('queue','${r.tid}','${escAttr(r.title)}')">➕ Queue</button>
+        <button class="action-btn video" onclick="doAction('play','${r.tid}','${escAttr(r.title)}',true)" title="Play video fullscreen">📺 Video</button>
       </div>`;
     inner.appendChild(item);
   });

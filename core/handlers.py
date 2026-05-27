@@ -92,7 +92,7 @@ async def handle_search(query: str) -> BotResponse:
 
 # ── Playback actions ──────────────────────────────────────────────────────
 
-async def action_play(tid: str) -> BotResponse:
+async def action_play(tid: str, video: bool = False) -> BotResponse:
     track = get_track(tid)
     if not track:
         return BotResponse("Track expired — search again.", kind="error")
@@ -102,10 +102,11 @@ async def action_play(tid: str) -> BotResponse:
         return BotResponse(str(e), kind="error")
     await player.set_loop_file(False)
     queue.set_current(track)
-    ok = await player.play(track["url"])
+    ok = await player.play(track["url"], video=video)
     if not ok:
         return BotResponse("⚠️ mpv didn't respond. Try: sudo apt install mpv")
-    return BotResponse(f"▶ Playing: {_fmt(track)}")
+    mode = "📺 Playing video" if video else "▶ Playing"
+    return BotResponse(f"{mode}: {_fmt(track)}")
 
 
 async def action_next(tid: str) -> BotResponse:
@@ -522,16 +523,27 @@ async def dispatch(text: str, history: list[dict] | None = None) -> BotResponse:
         if intent.type == "command" and intent.command == "play_all":
             return await handle_play_all()
 
+        if intent.type == "info":
+            sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+            from adapters.websearch import web_search, format_results
+            results = await web_search(intent.query or text)
+            return BotResponse(format_results(results), kind="text")
+
         if intent.type == "action" and intent.query:
             results = await search_youtube(intent.query, max_results=1)
             if not results:
                 return BotResponse(f"Couldn't find \"{intent.query}\" — try a different name.")
             track = results[0]
             tid = _store_track(track)
-            action_fn = {"play": action_play, "next": action_next, "queue": action_queue}.get(
-                intent.action, action_play
-            )
-            resp = await action_fn(tid)
+            video = getattr(intent, "video", False)
+            if intent.action == "play":
+                resp = await action_play(tid, video=video)
+            elif intent.action == "next":
+                resp = await action_next(tid)
+            elif intent.action == "queue":
+                resp = await action_queue(tid)
+            else:
+                resp = await action_play(tid, video=video)
             # Apply loop modifier if requested
             if intent.loop == "one":
                 queue.loop_one = True
@@ -546,7 +558,26 @@ async def dispatch(text: str, history: list[dict] | None = None) -> BotResponse:
 
         # Default: search intent (or fallback)
         query = intent.query or text
-        return await handle_search(query)
+        results = await search_youtube(query, MAX_SEARCH_RESULTS)
+        if not results:
+            # YouTube found nothing — fall back to web search
+            sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+            from adapters.websearch import web_search, format_results
+            web_results = await web_search(query)
+            if web_results:
+                return BotResponse(
+                    f"No YouTube results. Here's what I found on the web:\n\n{format_results(web_results)}",
+                    kind="text",
+                )
+            return BotResponse("No results found. Try a different search.", kind="error")
+        sr_list = []
+        for r in results:
+            tid = _store_track(r)
+            sr_list.append(SearchResult(tid=tid, title=r["title"], channel=r.get("channel",""),
+                                        duration=r.get("duration","?"), url=r["url"]))
+        set_last_results(sr_list)
+        return BotResponse(text=f"Found {len(sr_list)} results for \"{query}\"",
+                           results=sr_list, kind="results")
 
     # No Groq — plain search
     return await handle_search(text)
