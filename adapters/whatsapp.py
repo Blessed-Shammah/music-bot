@@ -1,36 +1,34 @@
 """
-Twilio WhatsApp adapter with interactive quick-reply buttons.
+Twilio WhatsApp adapter — clean text-based UX with keyboard shortcuts.
 
-Flow:
-  Search  → bot sends numbered list + "Pick a number" quick-reply buttons (1-5)
-  Pick #  → bot sends action quick-reply buttons (▶ Play / ⏭ Next / ➕ Queue)
-  Action  → bot executes and confirms
-
-Templates are created once via Twilio Content API and their SIDs cached in memory.
+Shortcuts after a search:
+  1p / 2p   → play audio
+  1v / 2v   → play video (fullscreen on PC)
+  1n / 2n   → play next
+  1q / 2q   → queue
+  just "1"  → shows shortcut reminder for that track
+  play all  → queue all results
 """
-import json
 import re
 import os
 import sys
 from typing import Optional
 
-from twilio.rest import Client
-from twilio.twiml.messaging_response import MessagingResponse
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from core.handlers import dispatch, action_play, action_next, action_queue, BotResponse, handle_bulk_search
-from config import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM, TWILIO_WHATSAPP_TO
+from core.handlers import (
+    dispatch, action_play, action_next, action_queue,
+    BotResponse, handle_bulk_search,
+)
+from config import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM
+from twilio.rest import Client
+from twilio.twiml.messaging_response import MessagingResponse
 
 # Per-user pending search results: phone_number -> list of SearchResult
 _pending: dict[str, list] = {}
 
 # Per-user conversation history for natural AI context (last 6 messages)
 _history: dict[str, list[dict]] = {}
-
-# Cached Content template SIDs (created once, reused forever)
-_sid_pick: Optional[str] = None    # "Pick a track" buttons: 1 2 3 4 5
-_sid_action: Optional[str] = None  # "What to do" buttons: Play Next Queue
 
 _client: Optional[Client] = None
 
@@ -53,63 +51,9 @@ def twiml_reply(text: str) -> str:
     return str(resp)
 
 
-# ── Content API template management ──────────────────────────────────────
-
-def _create_template(friendly_name: str, body: str, buttons: list[str]) -> str:
-    """Create a quick-reply Content template and return its SID."""
-    client = get_client()
-    actions = [{"title": b, "id": b.lower().replace(" ", "_")} for b in buttons]
-    content = client.content.v1.contents.create(
-        friendly_name=friendly_name,
-        types={
-            "twilio/quick-reply": {
-                "body": body,
-                "actions": actions,
-            }
-        },
-        language="en",
-        variables={"1": "placeholder"},
-    )
-    return content.sid
-
-
-def _get_or_create_pick_sid(n: int) -> str:
-    global _sid_pick
-    if not _sid_pick:
-        buttons = [str(i) for i in range(1, min(n, 3) + 1)]  # WhatsApp max 3 buttons
-        _sid_pick = _create_template(
-            "music_pick_track",
-            "{{1}}",  # dynamic body via variable
-            buttons,
-        )
-    return _sid_pick
-
-
-def _get_or_create_action_sid() -> str:
-    global _sid_action
-    if not _sid_action:
-        _sid_action = _create_template(
-            "music_track_action",
-            "{{1}}",
-            ["▶ Play", "⏭ Next", "➕ Queue"],
-        )
-    return _sid_action
-
-
-def _send_interactive(to: str, content_sid: str, body: str) -> None:
-    """Send an interactive Content template message."""
-    get_client().messages.create(
-        from_=TWILIO_WHATSAPP_FROM,
-        to=to,
-        content_sid=content_sid,
-        content_variables=json.dumps({"1": body}),
-    )
-
-
-# ── Message handling ──────────────────────────────────────────────────────
-
 def _format_results_text(results: list) -> str:
-    lines = ["🎵 *Search Results*\n"]
+    lines = ["🎵 *Results* — reply with number + action:\n"
+             "  _1p_ play · _1v_ video · _1n_ next · _1q_ queue\n"]
     for i, r in enumerate(results, 1):
         lines.append(f"{i}. {r.title}\n   {r.channel} · {r.duration}")
     return "\n".join(lines)
@@ -120,31 +64,15 @@ async def handle_whatsapp_message(from_number: str, body: str) -> str:
     normalized = body_stripped.lower()
 
     # ── "play all" → queue all pending results ────────────────────────────
-    if normalized in ("play all", "all") and from_number in _pending:
+    if normalized in ("play all", "all", "queue all") and from_number in _pending:
         tracks = [{"title": r.title, "url": r.url,
                    "duration": r.duration, "channel": r.channel}
                   for r in _pending[from_number]]
         resp = await handle_bulk_search(tracks)
         return twiml_reply(resp.text)
 
-    # ── Button callback IDs come back exactly as set (e.g. "▶ play", "1", "2") ──
-    # Handle action button responses
-    action_map = {
-        "▶ play": action_play,
-        "⏭ next": action_next,
-        "➕ queue": action_queue,
-        "play": action_play,
-        "next": action_next,
-        "queue": action_queue,
-    }
-    if normalized in action_map and f"{from_number}_selected" in _pending:
-        tid = _pending.pop(f"{from_number}_selected")
-        fn = action_map[normalized]
-        response = await fn(tid)
-        return twiml_reply(response.text)
-
-    # Handle number selection (button or typed)
-    num_match = re.match(r'^(\d+)([pnq]?)$', body_stripped, re.IGNORECASE)
+    # ── Number + action shortcut: 1p / 2v / 3n / 4q ──────────────────────
+    num_match = re.match(r'^(\d+)([pvnq]?)$', body_stripped, re.IGNORECASE)
     if num_match and from_number in _pending:
         idx = int(num_match.group(1)) - 1
         shortcut = num_match.group(2).lower()
@@ -152,30 +80,37 @@ async def handle_whatsapp_message(from_number: str, body: str) -> str:
 
         if 0 <= idx < len(results):
             result = results[idx]
-            # Direct shortcut: 1p / 1n / 1q
-            if shortcut in ("p", "n", "q"):
-                fn = {"p": action_play, "n": action_next, "q": action_queue}[shortcut]
-                response = await fn(result.tid)
-                return twiml_reply(response.text)
 
-            # No shortcut — show action buttons for this track
-            track_line = f"{result.title} · {result.duration}"
-            try:
-                sid = _get_or_create_action_sid()
-                _pending[f"{from_number}_selected"] = result.tid
-                _send_interactive(from_number, sid, track_line)
-                return twiml_reply("")  # empty TwiML — interactive msg sent separately
-            except Exception:
-                # Fallback to text if Content API fails
+            if shortcut == "p":
+                response = await action_play(result.tid)
+                return twiml_reply(response.text)
+            elif shortcut == "v":
+                response = await action_play(result.tid, video=True)
+                return twiml_reply(response.text)
+            elif shortcut == "n":
+                response = await action_next(result.tid)
+                return twiml_reply(response.text)
+            elif shortcut == "q":
+                response = await action_queue(result.tid)
+                return twiml_reply(response.text)
+            else:
+                # Bare number — remind them of shortcuts for this track
+                r = results[idx]
                 return twiml_reply(
-                    f"*{result.title}*\nReply: {idx+1}p=Play  {idx+1}n=Next  {idx+1}q=Queue"
+                    f"*{idx+1}. {r.title}*\n"
+                    f"{r.channel} · {r.duration}\n\n"
+                    f"Reply:\n"
+                    f"  *{idx+1}p* — ▶ Play audio\n"
+                    f"  *{idx+1}v* — 📺 Video fullscreen\n"
+                    f"  *{idx+1}n* — ⏭ Play next\n"
+                    f"  *{idx+1}q* — ➕ Queue"
                 )
 
-    # ── Regular dispatch (search, commands) ──────────────────────────────
+    # ── Regular dispatch (search, commands, AI) ───────────────────────────
     user_history = _history.setdefault(from_number, [])
     response: BotResponse = await dispatch(body_stripped, history=user_history)
 
-    # Record this exchange for context (cap at 6 messages = 3 turns)
+    # Record exchange for context (cap at 6 messages = 3 turns)
     user_history.append({"role": "user", "content": body_stripped})
     user_history.append({"role": "assistant", "content": response.text})
     if len(user_history) > 6:
@@ -183,17 +118,7 @@ async def handle_whatsapp_message(from_number: str, body: str) -> str:
 
     if response.kind == "results":
         _pending[from_number] = response.results
-        results_text = _format_results_text(response.results)
-        n = len(response.results)
-
-        # Try interactive buttons (max 3 due to WhatsApp limit)
-        try:
-            sid = _get_or_create_pick_sid(n)
-            _send_interactive(from_number, sid, results_text + "\n\nTap a number to select:")
-            return twiml_reply("")
-        except Exception:
-            # Fallback: plain text with instructions
-            return twiml_reply(results_text + "\n\nReply with number (e.g. 1) to select")
+        return twiml_reply(_format_results_text(response.results))
 
     if response.kind == "playlists":
         lines = ["📚 *Saved Playlists*\nUse /load <name> to play one\n"]
