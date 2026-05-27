@@ -25,6 +25,9 @@ from config import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM, 
 # Per-user pending search results: phone_number -> list of SearchResult
 _pending: dict[str, list] = {}
 
+# Per-user conversation history for natural AI context (last 6 messages)
+_history: dict[str, list[dict]] = {}
+
 # Cached Content template SIDs (created once, reused forever)
 _sid_pick: Optional[str] = None    # "Pick a track" buttons: 1 2 3 4 5
 _sid_action: Optional[str] = None  # "What to do" buttons: Play Next Queue
@@ -169,7 +172,14 @@ async def handle_whatsapp_message(from_number: str, body: str) -> str:
                 )
 
     # ── Regular dispatch (search, commands) ──────────────────────────────
-    response: BotResponse = await dispatch(body_stripped)
+    user_history = _history.setdefault(from_number, [])
+    response: BotResponse = await dispatch(body_stripped, history=user_history)
+
+    # Record this exchange for context (cap at 6 messages = 3 turns)
+    user_history.append({"role": "user", "content": body_stripped})
+    user_history.append({"role": "assistant", "content": response.text})
+    if len(user_history) > 6:
+        user_history[:] = user_history[-6:]
 
     if response.kind == "results":
         _pending[from_number] = response.results

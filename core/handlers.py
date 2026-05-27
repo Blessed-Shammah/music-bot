@@ -461,6 +461,7 @@ async def _route_command(cmd: str, args: list[str]) -> BotResponse:
         "clear":    cmd_clear,
         "playlists": cmd_playlists,
         "stop":     cmd_clear,
+        "play_all": handle_play_all,
     }
     args_map = {
         "seek":        cmd_seek,
@@ -483,11 +484,12 @@ async def _route_command(cmd: str, args: list[str]) -> BotResponse:
 
 # ── AI-powered dispatcher ─────────────────────────────────────────────────
 
-async def dispatch(text: str) -> BotResponse:
+async def dispatch(text: str, history: list[dict] | None = None) -> BotResponse:
     """
     Single entry point for all adapters.
     Slash commands bypass AI. Everything else goes through Groq intent parsing
     so natural language always works.
+    history: optional list of {"role": "user"|"assistant", "content": str} for context.
     """
     text = text.strip()
 
@@ -500,7 +502,7 @@ async def dispatch(text: str) -> BotResponse:
     # Use Groq AI if available
     if GROQ_ENABLED:
         from core.ai import parse_intent
-        intent = await parse_intent(text)
+        intent = await parse_intent(text, history=history)
 
         if intent.type == "chat":
             return BotResponse(intent.message or "Hey! What song would you like to hear? 🎵")

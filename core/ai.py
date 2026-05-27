@@ -69,13 +69,13 @@ class Intent:
     theme: str = ""
 
 
-_SYSTEM = """You are a music bot assistant. Parse the user's message and return ONLY valid JSON.
+_SYSTEM = """You are a friendly music bot assistant. Parse the user's message and return ONLY valid JSON.
 
 Intent types:
-- "search"           — find a specific song/artist
-- "action"           — play/queue a SPECIFIC named song
-- "command"          — playback control (no song named): skip, pause, loop, loopq, shuffle, playing, clear, prev, stop
-- "chat"             — greetings or off-topic
+- "search"           — find a specific song/artist to show options
+- "action"           — play/queue a SPECIFIC named song immediately
+- "command"          — playback control (no song named): skip, pause, loop, loopq, shuffle, playing, clear, prev, stop, play_all
+- "chat"             — greetings, thanks, or off-topic (write a short friendly reply)
 - "bulk_search"      — a LIST of 2+ specific songs to queue
 - "ai_playlist"      — user describes a vibe/theme/era and wants the bot to pick songs (e.g. "GOATED hip hop", "chill afrobeats", "90s RnB classics")
 - "history_playlist" — user wants a playlist made from songs already played this session
@@ -86,8 +86,8 @@ JSON schema:
   "query": "clean YouTube search query (search/action)",
   "action": "play"|"next"|"queue",
   "loop": ""|"one"|"queue",
-  "command": "skip|pause|loop|loopq|shuffle|playing|clear|prev|stop",
-  "message": "friendly reply (chat only)",
+  "command": "skip|pause|loop|loopq|shuffle|playing|clear|prev|stop|play_all",
+  "message": "short friendly reply (chat only, 1-2 sentences max)",
   "songs": ["Artist - Song", ...],
   "playlist_name": "name to save as",
   "theme": "the vibe/theme for ai_playlist (e.g. 'GOATED hip hop all time')"
@@ -98,24 +98,27 @@ Rules:
 - "play X on loop/repeat" → action, action=play, query=X, loop=one
 - "next X" / "play X next" → action, action=next
 - "queue X" → action, action=queue
-- bare song name → search
+- "on loop" / "loop this" / "loop it" / "repeat this" (no song named) → command, command=loop
+- bare song name or artist → search
 - 2+ songs listed → bulk_search
 - vibe/mood/genre/era request ("best trap songs", "chill vibes", "GOATED hip hop") → ai_playlist, theme=the description
 - "playlist of songs we played" / "songs I listened to" / "session history" → history_playlist
-- "play all" after showing search results → command, command=play_all
-- Return valid JSON only
+- "play all" / "play all of them" / "queue all" → command, command=play_all
+- chat: be warm and brief — one line. Don't list commands unless asked.
+- Return valid JSON only, no markdown fences
 """
 
 
-async def parse_intent(message: str) -> Intent:
+async def parse_intent(message: str, history: list[dict] | None = None) -> Intent:
     """Parse a user message into a structured Intent using Groq."""
     try:
+        messages = [{"role": "system", "content": _SYSTEM}]
+        if history:
+            messages.extend(history[-6:])   # last 3 exchanges for context
+        messages.append({"role": "user", "content": message})
         resp = await get_client().chat.completions.create(
             model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": _SYSTEM},
-                {"role": "user", "content": message},
-            ],
+            messages=messages,
             temperature=0,
             max_tokens=300,
             response_format={"type": "json_object"},
