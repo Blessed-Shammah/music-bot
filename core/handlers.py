@@ -519,14 +519,100 @@ async def _route_command(cmd: str, args: list[str]) -> BotResponse:
     return BotResponse(f"Unknown command /{cmd} — type /help")
 
 
+# ── Agent tool executor ───────────────────────────────────────────────────
+
+async def _execute_tool(name: str, args: dict) -> BotResponse:
+    """Execute a single tool call from the agent and return a BotResponse."""
+
+    if name == "search_music":
+        query = args.get("query", "")
+        video = args.get("video", False)
+        results_raw = await search_youtube(query, MAX_SEARCH_RESULTS)
+        if not results_raw:
+            sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+            from adapters.websearch import web_search, format_results
+            web_results = await web_search(query)
+            if web_results:
+                return BotResponse(f"No YouTube results — here's what I found:\n\n{format_results(web_results)}")
+            return BotResponse(f"Nothing found for \"{query}\".", kind="error")
+        sr_list = []
+        for r in results_raw:
+            tid = _store_track(r)
+            sr_list.append(SearchResult(tid=tid, title=r["title"],
+                                        channel=r.get("channel", ""), duration=r.get("duration", "?"),
+                                        url=r["url"]))
+        set_last_results(sr_list)
+        # Tag results with video intent so adapters know
+        return BotResponse(text=f"Found {len(sr_list)} results for \"{query}\"",
+                           results=sr_list, kind="results")
+
+    if name == "play_music":
+        query = args.get("query", "")
+        video = args.get("video", False)
+        mode = args.get("mode", "play")
+        loop = args.get("loop", "")
+        results = await search_youtube(query, max_results=1)
+        if not results:
+            return BotResponse(f"Couldn't find \"{query}\".", kind="error")
+        track = results[0]
+        tid = _store_track(track)
+        if mode == "next":
+            resp = await action_next(tid)
+        elif mode == "queue":
+            resp = await action_queue(tid)
+        else:
+            resp = await action_play(tid, video=video)
+        if loop == "one":
+            queue.loop_one = True
+            queue.loop_queue = False
+            await player.set_loop_file(True)
+            resp = BotResponse(resp.text + "\n🔂 Looping this song")
+        elif loop == "queue":
+            queue.loop_queue = True
+            queue.loop_one = False
+            resp = BotResponse(resp.text + "\n🔁 Looping queue")
+        return resp
+
+    if name == "playback_control":
+        action = args.get("action", "")
+        if action == "volume" and "volume" in args:
+            return await cmd_vol([str(args["volume"])])
+        return await _route_command(action, [])
+
+    if name == "ai_playlist":
+        theme = args.get("theme", "")
+        playlist_name = args.get("playlist_name", "")
+        return await handle_ai_playlist(theme, playlist_name)
+
+    if name == "manage_playlist":
+        action = args.get("action", "")
+        pname = args.get("name", "")
+        if action == "save":
+            return await cmd_save([pname] if pname else [])
+        if action == "load":
+            return await cmd_load([pname] if pname else [])
+        if action == "list":
+            return await cmd_playlists()
+        if action == "delete":
+            return await cmd_delplaylist([pname] if pname else [])
+        if action == "history":
+            return await handle_history_playlist(pname)
+
+    if name == "web_search":
+        sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+        from adapters.websearch import web_search, format_results
+        results = await web_search(args.get("query", ""))
+        return BotResponse(format_results(results))
+
+    return BotResponse(f"Unknown tool: {name}", kind="error")
+
+
 # ── AI-powered dispatcher ─────────────────────────────────────────────────
 
 async def dispatch(text: str, history: list[dict] | None = None) -> BotResponse:
     """
     Single entry point for all adapters.
-    Slash commands bypass AI. Everything else goes through Groq intent parsing
-    so natural language always works.
-    history: optional list of {"role": "user"|"assistant", "content": str} for context.
+    Slash commands bypass AI. Natural language goes through the Groq tool-calling agent.
     """
     text = text.strip()
 
@@ -536,84 +622,42 @@ async def dispatch(text: str, history: list[dict] | None = None) -> BotResponse:
         cmd = parts[0].lower() if parts else ""
         return await _route_command(cmd, parts[1:])
 
-    # Use Groq AI if available
     if GROQ_ENABLED:
-        from core.ai import parse_intent
-        intent = await parse_intent(text, history=history)
+        from core.ai import run_agent
+        result = await run_agent(text, history=history)
 
-        if intent.type == "chat":
-            return BotResponse(intent.message or "Hey! What song would you like to hear? 🎵")
+        # If the agent made tool calls, execute them and collect responses
+        if result.tool_calls:
+            responses = []
+            last_resp = None
+            for call in result.tool_calls:
+                last_resp = await _execute_tool(call["name"], call["args"])
+                responses.append(last_resp)
 
-        if intent.type == "command":
-            return await _route_command(intent.command, [])
-
-        if intent.type == "bulk_search":
-            return await handle_bulk_search(intent.songs, intent.playlist_name)
-
-        if intent.type == "history_playlist":
-            return await handle_history_playlist(intent.playlist_name)
-
-        if intent.type == "ai_playlist":
-            return await handle_ai_playlist(intent.theme or text, intent.playlist_name, intent.loop)
-
-        if intent.type == "command" and intent.command == "play_all":
-            return await handle_play_all()
-
-        if intent.type == "info":
-            sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-            from adapters.websearch import web_search, format_results
-            results = await web_search(intent.query or text)
-            return BotResponse(format_results(results), kind="text")
-
-        if intent.type == "action" and intent.query:
-            results = await search_youtube(intent.query, max_results=1)
-            if not results:
-                return BotResponse(f"Couldn't find \"{intent.query}\" — try a different name.")
-            track = results[0]
-            tid = _store_track(track)
-            video = getattr(intent, "video", False)
-            if intent.action == "play":
-                resp = await action_play(tid, video=video)
-            elif intent.action == "next":
-                resp = await action_next(tid)
-            elif intent.action == "queue":
-                resp = await action_queue(tid)
+            # If multiple tools ran, merge text; use the last structured response
+            if len(responses) == 1:
+                final = responses[0]
             else:
-                resp = await action_play(tid, video=video)
-            # Apply loop modifier if requested
-            if intent.loop == "one":
-                queue.loop_one = True
-                queue.loop_queue = False
-                await player.set_loop_file(True)
-                resp = BotResponse(resp.text + "\n🔂 Looping this song")
-            elif intent.loop == "queue":
-                queue.loop_queue = True
-                queue.loop_one = False
-                resp = BotResponse(resp.text + "\n🔁 Looping queue")
-            return resp
+                combined_text = "\n\n".join(r.text for r in responses if r.text)
+                # Use the last response that has structured data, otherwise plain text
+                structured = next((r for r in reversed(responses) if r.kind != "text"), None)
+                final = structured or BotResponse(combined_text)
+                if structured and result.text:
+                    final = BotResponse(result.text or combined_text,
+                                        results=structured.results,
+                                        kind=structured.kind,
+                                        playlists=structured.playlists)
 
-        # Default: search intent (or fallback)
-        query = intent.query or text
-        results = await search_youtube(query, MAX_SEARCH_RESULTS)
-        if not results:
-            # YouTube found nothing — fall back to web search
-            sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-            from adapters.websearch import web_search, format_results
-            web_results = await web_search(query)
-            if web_results:
-                return BotResponse(
-                    f"No YouTube results. Here's what I found on the web:\n\n{format_results(web_results)}",
-                    kind="text",
-                )
-            return BotResponse("No results found. Try a different search.", kind="error")
-        sr_list = []
-        for r in results:
-            tid = _store_track(r)
-            sr_list.append(SearchResult(tid=tid, title=r["title"], channel=r.get("channel",""),
-                                        duration=r.get("duration","?"), url=r["url"]))
-        set_last_results(sr_list)
-        return BotResponse(text=f"Found {len(sr_list)} results for \"{query}\"",
-                           results=sr_list, kind="results")
+            # Prepend the agent's conversational reply if it said something
+            if result.text and final.kind == "text":
+                final = BotResponse(result.text, kind="text")
+            elif result.text and final.kind == "results":
+                # Agent narrated + returned results — use agent text as context
+                pass
+            return final
+
+        # Agent chose not to call any tool — pure conversational reply
+        return BotResponse(result.text or "I didn't quite get that — what would you like to hear?")
 
     # No Groq — plain search
     return await handle_search(text)

@@ -4,7 +4,11 @@ No API key required — uses the free DDG instant answer + HTML search.
 """
 import asyncio
 from functools import partial
-from duckduckgo_search import DDGS
+
+try:
+    from ddgs import DDGS          # new package name
+except ImportError:
+    from duckduckgo_search import DDGS  # fallback old name
 
 
 def _search_sync(query: str, max_results: int = 5) -> list[dict]:
