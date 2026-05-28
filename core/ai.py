@@ -62,7 +62,7 @@ class Intent:
     query: str = ""     # for search/action/info: the cleaned query
     action: str = ""    # for action: play | next | queue
     loop: str = ""      # "" | "one" | "queue" — loop modifier
-    command: str = ""   # for command: skip | pause | loop | loopq | shuffle | playing | clear | prev
+    command: str = ""   # skip|pause|resume|loop_on|loop_off|loop|loopq|shuffle|playing|clear|prev|stop|play_all
     message: str = ""   # for chat: a friendly reply
     video: bool = False # true when user wants to watch video (show on screen)
     songs: list[str] = field(default_factory=list)
@@ -89,7 +89,7 @@ JSON schema:
   "action": "play"|"next"|"queue",
   "loop": ""|"one"|"queue",
   "video": false,
-  "command": "skip|pause|loop|loopq|shuffle|playing|clear|prev|stop|play_all",
+  "command": "skip|pause|resume|loop_on|loop_off|loop|loopq|shuffle|playing|clear|prev|stop|play_all",
   "message": "short friendly reply (chat only, 1-2 sentences max)",
   "songs": ["Artist - Song", ...],
   "playlist_name": "name to save as",
@@ -103,7 +103,11 @@ Rules:
 - "play X on loop/repeat" → action, action=play, query=X, loop=one
 - "next X" / "play X next" → action, action=next
 - "queue X" → action, action=queue
-- "on loop" / "loop this" / "loop it" / "repeat this" (no content named) → command, command=loop
+- "on loop" / "loop this" / "loop it" / "repeat this" / "put it on loop" → command, command=loop_on  (ALWAYS enable, never toggle)
+- "loop off" / "stop looping" / "no loop" / "disable loop" → command, command=loop_off
+- "pause" / "pause that" / "pause it" / "hold on" / "stop that" → command, command=pause
+- "resume" / "play" (no song named) / "continue" / "unpause" → command, command=resume
+- "not playing" / "it stopped" / "nothing is playing" / "play it again" → command, command=resume
 - "watch X" / "show video X" / "play video X" / "show me X" → action, action=play, video=true, query=X
 - bare song/artist/podcast name → search
 - "latest episodes of X podcast" / "X podcast news" / "what has X posted" → info, query="X podcast latest 2024"

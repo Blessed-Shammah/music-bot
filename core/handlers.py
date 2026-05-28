@@ -206,9 +206,41 @@ async def cmd_loop() -> BotResponse:
     return BotResponse("🔂 Loop one ON" if enabled else "➡️ Loop one OFF")
 
 
+async def cmd_loop_on() -> BotResponse:
+    queue.loop_one = True
+    queue.loop_queue = False
+    await player.set_loop_file(True)
+    return BotResponse("🔂 Looping this song")
+
+
+async def cmd_loop_off() -> BotResponse:
+    queue.loop_one = False
+    queue.loop_queue = False
+    await player.set_loop_file(False)
+    return BotResponse("➡️ Loop OFF")
+
+
 async def cmd_loopq() -> BotResponse:
     enabled = queue.toggle_loop_queue()
     return BotResponse("🔁 Loop queue ON" if enabled else "➡️ Loop queue OFF")
+
+
+async def cmd_resume() -> BotResponse:
+    """Resume: unpause if paused, else replay current track."""
+    current = queue.current()
+    if not current:
+        return BotResponse("Nothing to resume — search for something to play.")
+    try:
+        await ensure_mpv_running(player)
+    except RuntimeError as e:
+        return BotResponse(str(e), kind="error")
+    # Try unpausing first; if mpv isn't playing anything, replay
+    pos = await player.get_time_pos()
+    if pos is None:
+        await player.play(current["url"])
+        return BotResponse(f"▶ Playing: {_fmt(current)}")
+    await player.pause_toggle()
+    return BotResponse(f"▶ Resumed: {_fmt(current)}")
 
 
 async def cmd_shuffle() -> BotResponse:
@@ -453,9 +485,13 @@ async def _route_command(cmd: str, args: list[str]) -> BotResponse:
         "help":     lambda: _route_command("start", []),
         "playing":  cmd_playing,
         "pause":    cmd_pause,
+        "resume":   cmd_resume,
+        "play":     cmd_resume,
         "skip":     cmd_skip,
         "prev":     cmd_prev,
         "loop":     cmd_loop,
+        "loop_on":  cmd_loop_on,
+        "loop_off": cmd_loop_off,
         "loopq":    cmd_loopq,
         "shuffle":  cmd_shuffle,
         "queue":    cmd_queue_list,
