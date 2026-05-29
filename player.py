@@ -44,8 +44,8 @@ class MpvController:
             [
                 "mpv", "--vid=no", "--idle=yes",
                 f"--input-ipc-server={self.socket_path}",
-                "--ytdl=yes",                          # always use yt-dlp for YouTube URLs
-                "--ytdl-raw-options=no-playlist=",     # don't expand playlists on loop
+                "--ytdl=yes",
+                "--ytdl-raw-options=no-playlist=,cookies-from-browser=firefox",
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
