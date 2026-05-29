@@ -440,12 +440,12 @@ async def handle_ai_playlist(theme: str, playlist_name: str = "", loop: str = ""
     name = playlist_name or ai_name
     result = await handle_bulk_search(songs, name)
 
-    # Apply loop if requested
+    # Apply loop only when explicitly requested
     if loop == "one":
         queue.loop_one = True
         await player.set_loop_file(True)
         result = BotResponse(result.text + "\n🔂 Looping first track")
-    elif loop in ("queue", "") :  # default loop queue for AI playlists
+    elif loop == "queue":
         queue.loop_queue = True
         result = BotResponse(result.text + "\n🔁 Looping playlist")
 

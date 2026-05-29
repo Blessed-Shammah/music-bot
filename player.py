@@ -17,7 +17,7 @@ class MpvController:
         if not os.path.exists(self.socket_path):
             return False
         try:
-            reader, writer = await asyncio.wait_for(
+            _, writer = await asyncio.wait_for(
                 asyncio.open_unix_connection(self.socket_path), timeout=1.0
             )
             writer.close()
@@ -41,7 +41,12 @@ class MpvController:
                 pass
 
         subprocess.Popen(
-            ["mpv", "--vid=no", "--idle=yes", f"--input-ipc-server={self.socket_path}"],
+            [
+                "mpv", "--vid=no", "--idle=yes",
+                f"--input-ipc-server={self.socket_path}",
+                "--ytdl=yes",                          # always use yt-dlp for YouTube URLs
+                "--ytdl-raw-options=no-playlist=",     # don't expand playlists on loop
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )

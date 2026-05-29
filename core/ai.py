@@ -150,9 +150,11 @@ Tool use guidelines:
 - "loop off" / "stop looping" → playback_control action=loop_off
 - "not playing" / "it stopped" → playback_control action=resume
 - "pause that" / "hold on" → playback_control action=pause
-- Vibe/mood/theme requests → ai_playlist
+- Vibe/mood/theme/era requests ("chill playlist", "90s hits", "workout bangers") → ai_playlist
+- "make a playlist together" / "create a playlist for us" / "can you do a whole playlist?" → ai_playlist (you pick the songs based on context/mood)
+- If user says "play X on loop" → play_music with loop="one"
 - News/info/podcast updates → web_search
-- You can call multiple tools in sequence when needed
+- IMPORTANT: Use ONE tool per turn unless the second tool directly depends on the first result. Don't chain loop_on after play — use the loop parameter in play_music instead.
 
 Always confirm what you did in a natural, brief sentence after acting.
 """
