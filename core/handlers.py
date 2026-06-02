@@ -220,6 +220,18 @@ async def cmd_loop_off() -> BotResponse:
     return BotResponse("➡️ Loop OFF")
 
 
+async def cmd_audio_mode() -> BotResponse:
+    current = queue.current
+    if not current:
+        return BotResponse("Nothing is playing right now.")
+    try:
+        await ensure_mpv_running(player)
+    except RuntimeError as e:
+        return BotResponse(str(e), kind="error")
+    await player.play(current["url"], video=False)
+    return BotResponse(f"▶ Playing as audio: {_fmt(current)}")
+
+
 async def cmd_loopq() -> BotResponse:
     enabled = queue.toggle_loop_queue()
     return BotResponse("🔁 Loop queue ON" if enabled else "➡️ Loop queue OFF")
@@ -498,7 +510,8 @@ async def _route_command(cmd: str, args: list[str]) -> BotResponse:
         "clear":    cmd_clear,
         "playlists": cmd_playlists,
         "stop":     cmd_clear,
-        "play_all": handle_play_all,
+        "play_all":   handle_play_all,
+        "audio_mode": cmd_audio_mode,
     }
     args_map = {
         "seek":        cmd_seek,

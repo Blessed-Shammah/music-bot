@@ -76,7 +76,7 @@ TOOLS = [
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["pause", "resume", "skip", "prev", "loop_on", "loop_off", "loopq", "shuffle", "playing", "clear", "stop", "play_all"],
+                        "enum": ["pause", "resume", "skip", "prev", "loop_on", "loop_off", "loopq", "shuffle", "playing", "clear", "stop", "play_all", "audio_mode"],
                         "description": "The control action to perform",
                     },
                     "volume": {"type": "integer", "description": "Volume level 0-150, only for volume action"},
@@ -145,7 +145,9 @@ Personality:
 Tool use guidelines:
 - "play X" → play_music immediately (don't search first)
 - "find/show me/search X" → search_music to show options
-- "watch X" / "show video X" → search_music or play_music with video=true
+- "watch X" / "show video X" → search_music or play_music with video=true (ONLY set video=true when user explicitly says watch/video)
+- "play as audio" / "switch to audio" / "audio only" → playback_control action=audio_mode (NEVER use play_music for this)
+- IMPORTANT: video must always be a boolean true or false, never a string
 - "on loop" / "loop it" / "repeat this" → playback_control action=loop_on (always ENABLE, never toggle)
 - "loop off" / "stop looping" → playback_control action=loop_off
 - "not playing" / "it stopped" → playback_control action=resume
