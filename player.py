@@ -76,13 +76,47 @@ class MpvController:
             print(f"[mpv] _send error: {e}")
             return None
 
-    async def play(self, url: str, video: bool = False) -> bool:
-        # Set video track: enable for video mode, disable for audio-only
+    async def _ramp(self, from_vol: float, to_vol: float, duration_ms: int, steps: int = 30) -> None:
+        """S-curve volume ramp — feels musical, not mechanical."""
+        import math
+        step_ms = duration_ms / steps
+        for i in range(steps):
+            t = (i + 1) / steps
+            # Sinusoidal S-curve: slow start, fast middle, slow end
+            curve = (1 - math.cos(math.pi * t)) / 2
+            vol = from_vol + (to_vol - from_vol) * curve
+            await self._send(["set_property", "volume", max(0.0, vol)])
+            await asyncio.sleep(step_ms / 1000)
+
+    async def play(self, url: str, video: bool = False, transition_ms: int = 1800) -> bool:
+        vol_result = await self._send(["get_property", "volume"])
+        target_vol = vol_result.get("data", 100) if vol_result and vol_result.get("error") == "success" else 100
+
+        is_playing_result = await self._send(["get_property", "idle-active"])
+        is_idle = is_playing_result and is_playing_result.get("data") is True
+
+        if not is_idle:
+            # Fade out to ~35% — new track punches in while still warm (DJ feel)
+            await self._ramp(target_vol, target_vol * 0.35, transition_ms // 2)
+
         await self._send(["set_property", "vid", "auto" if video else "no"])
         if video:
             await self._send(["set_property", "fullscreen", True])
+        await self._send(["set_property", "volume", 0])
         result = await self._send(["loadfile", url, "replace"])
-        return result is not None
+        if result is None:
+            return False
+
+        # Wait for new track to start buffering
+        for _ in range(40):
+            await asyncio.sleep(0.1)
+            check = await self._send(["get_property", "idle-active"])
+            if check and check.get("data") is False:
+                break
+
+        # Fade in from 0 → full volume
+        await self._ramp(0, target_vol, transition_ms)
+        return True
 
     async def exit_fullscreen(self) -> bool:
         result = await self._send(["set_property", "fullscreen", False])
